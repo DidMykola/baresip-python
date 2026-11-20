@@ -4,6 +4,18 @@ All notable changes to baresip-python are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project versions follow
 SemVer with the 0.x caveat (see the API stability policy in the README).
 
+## [Unreleased]
+
+### Fixed
+
+- Dialing a host name from an account that does not register
+  (`reg_interval=0`) with media NAT enabled (`medianat=stun`, `ice` or
+  `turn` in `extra_params`) failed with "Address family not supported by
+  protocol family" before any INVITE was sent. With no registration and no
+  numeric target the stack had no address family for the call, and the
+  media-NAT server lookup needs one. The dial now uses the family the host
+  has an address for, as a registered account's would.
+
 ## [0.6.0] - 2026-10-29
 
 The first final release. The package is what 0.5.2a3 shipped, unchanged: no

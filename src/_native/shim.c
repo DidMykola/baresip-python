@@ -845,6 +845,31 @@ const char *bp_bevent_str(int ev)
 
 /* RE THREAD. The single dispatch funnel: every command the binding ever
  * grows is one new case here. */
+/* An outbound call takes its address family from a numeric target, else
+ * from the registration's local address, else from the network config,
+ * which is unspecified by default. An account that neither registers nor
+ * dials a numeric host therefore starts its call with no family, and a
+ * media-NAT session then fails its server lookup with EAFNOSUPPORT before
+ * any INVITE is sent. For that one case, give the stack the family a
+ * registration would have given it (the one this host has an address
+ * for) while the call is allocated: the call copies it, so the caller
+ * restores *saved right after. Returns true when it changed the config.
+ * Runs on the re thread, so nothing else sees the interim value. */
+static bool dial_af_set(const struct ua *ua, bool numeric_target, int *saved)
+{
+    struct network *net = baresip_network();
+    const struct account *acc = ua_account(ua);
+
+    *saved = net_af(net);
+    if (numeric_target || *saved != AF_UNSPEC || !acc)
+        return false;
+    if (account_regint(acc) || !str_isset(account_medianat(acc)))
+        return false;
+
+    (void)net_set_af(net, sa_isset(net_laddr_af(net, AF_INET), SA_ADDR) ? AF_INET : AF_INET6);
+    return true;
+}
+
 static void cmd_handler(int id, void *data, void *arg)
 {
     struct bp_cmd_msg *msg = data;
@@ -1089,8 +1114,13 @@ static void cmd_handler(int id, void *data, void *arg)
                                              SDP_RECVONLY};
         enum sdp_dir vdir = video < RE_ARRAY_SIZE(vdirs) ? vdirs[video] : SDP_SENDRECV;
         struct call *call = NULL;
+        int saved_af;
+        bool af_set = dial_af_set(ua, sa_isset(&dst, SA_ADDR), &saved_af);
         int cerr = ua_connect_dir(ua, &call, NULL, uri, video ? VIDMODE_ON : VIDMODE_OFF,
                                   SDP_SENDRECV, vdir);
+
+        if (af_set)
+            (void)net_set_af(baresip_network(), saved_af);
 
         if (!list_isempty(&hdrs)) {
             ua_set_custom_hdrs(ua, NULL);
@@ -1214,7 +1244,12 @@ static void cmd_handler(int id, void *data, void *arg)
          * via a final 500 sipfrag, as menu does. */
         struct ua *ua = call_get_ua(call);
         struct call *call2 = NULL;
+        int saved_af;
+        bool af_set = dial_af_set(ua, false, &saved_af);
         int cerr = ua_call_alloc(&call2, ua, VIDMODE_OFF, NULL, call, call_localuri(call), true);
+
+        if (af_set)
+            (void)net_set_af(baresip_network(), saved_af);
 
         if (!cerr) {
             struct pl pl;
