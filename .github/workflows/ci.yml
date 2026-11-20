@@ -65,10 +65,17 @@ jobs:
   # container rationale as sanitize.
   tsan:
     runs-on: ubuntu-latest
-    container: python:3.12
+    # Privileged for the sysctl below, which is host-wide.
+    container:
+      image: python:3.12
+      options: --privileged
     env:
       UV_PYTHON_PREFERENCE: only-system
     steps:
+      # TSan maps its shadow memory at fixed addresses and aborts at startup
+      # ("unexpected memory mapping") when the kernel's mmap randomization
+      # spans them; 28 bits is the widest range it accepts.
+      - run: sysctl -w vm.mmap_rnd_bits=28
       - uses: actions/checkout@v5
         with:
           submodules: recursive
@@ -81,7 +88,7 @@ jobs:
       - run: make test-tsan
 
   macos:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
         with:
