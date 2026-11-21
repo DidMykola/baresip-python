@@ -4,6 +4,21 @@ All notable changes to baresip-python are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project versions follow
 SemVer with the 0.x caveat (see the API stability policy in the README).
 
+## [Unreleased]
+
+### Changed
+
+- The bundled baresip and libre move from v4.10.0 to v4.13.0. No API of this
+  package changes. What a call can show differently:
+  - Opus conceals lost packets (PLC) instead of playing a gap.
+  - The transmit RTP timestamp advances while there is nothing to send, so
+    audio after a pause is not heard late by the far end.
+  - Padding on received RTP packets is stripped before decoding.
+  - The adaptive jitter buffer adds three times the measured jitter as
+    margin, up from two; the fixed buffer is unchanged.
+  - The stack no longer reads `audio_buffer_mode` or `audio_silence`; a
+    line setting either in `extra_config_text` has no effect.
+
 ## [0.6.1] - 2026-11-20
 
 ### Fixed

@@ -9,8 +9,8 @@ bumping the pin.
 
 | Submodule | Version | Commit |
 |---|---|---|
-| `third_party/re` | v4.10.0 | `57beb068cd7944c829102710fd416749c3e694d9` |
-| `third_party/baresip` | v4.10.0 | `a1542aedf7c8dfba095214ef3e83fcd4d9fb4884` |
+| `third_party/re` | v4.13.0 | `b827bcaf55a18be141ca7bcee1e22872a3a29656` |
+| `third_party/baresip` | v4.13.0 | `8a4f18c1c1b5331daa026236dcdd108deff601e8` |
 
 baresip and libre are released in lockstep; always bump both to the same version.
 
