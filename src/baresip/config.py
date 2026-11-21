@@ -14,7 +14,9 @@ the underlying parsers would misread is rejected with ValueError where the
 mistake was made, instead of surfacing as a protocol failure later.
 """
 
+import os
 import re
+import ssl
 import uuid
 from dataclasses import dataclass
 from typing import Literal
@@ -27,6 +29,62 @@ _DTMF_MODES = ("rtpevent", "info", "auto")
 
 # RFC 7230 token characters: what a header name may consist of.
 _HEADER_NAME = re.compile(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+")
+
+
+def sip_ca_file() -> str | None:
+    """The CA file ``SIP_CA_FILE`` names, trusted for SIP in addition.
+
+    For a server whose CA is private: the file (PEM, one certificate or
+    several) is trusted alongside the CA certificates :func:`discover_ca`
+    finds, and by the SIP stack alone, so nothing else in the process
+    comes to trust it and public servers keep verifying.
+
+    Raises:
+        ValueError: the variable is set but does not name a file.
+    """
+    path = os.environ.get("SIP_CA_FILE")
+    if not path:
+        return None
+    if not os.path.isfile(path):
+        raise ValueError(f"SIP_CA_FILE does not name a file: {path!r}")
+    return path
+
+
+def discover_ca() -> tuple[str, str] | None:
+    """Find the CA certificates TLS servers are verified against.
+
+    The stack trusts only what it is handed, so the bundle is looked up
+    where TLS clients conventionally find theirs, first hit wins:
+    ``SSL_CERT_FILE``, ``SSL_CERT_DIR``, the file and then the directory
+    Python's ``ssl`` module reports for this platform, and ``certifi``
+    when it is installed.
+
+    Returns:
+        ``("sip_cafile" | "sip_capath", path)`` naming the stack directive
+        and its value, or None when no CA certificates were found.
+    """
+
+    def usable_dir(path: str | None) -> bool:
+        try:
+            return bool(path) and os.path.isdir(path) and any(os.scandir(path))
+        except OSError:
+            return False
+
+    paths = ssl.get_default_verify_paths()
+    for cafile, capath in (
+        (os.environ.get("SSL_CERT_FILE"), os.environ.get("SSL_CERT_DIR")),
+        (paths.cafile, paths.capath),
+    ):
+        if cafile and os.path.isfile(cafile):
+            return "sip_cafile", cafile
+        if usable_dir(capath):
+            return "sip_capath", capath
+    try:
+        import certifi
+    except ImportError:
+        return None
+    cafile = certifi.where()
+    return ("sip_cafile", cafile) if os.path.isfile(cafile) else None
 
 
 def _reject_chars(field: str, value: str, deny: str = "", *, allow_space: bool = False) -> None:

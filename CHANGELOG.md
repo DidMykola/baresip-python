@@ -6,7 +6,23 @@ SemVer with the 0.x caveat (see the API stability policy in the README).
 
 ## [0.7.0] - 2026-11-21
 
+### Added
+
+- `NoCaCertificatesError`: raised for a TLS account or dial target when the
+  runtime found no CA certificates to verify servers with.
+
 ### Changed
+
+- **TLS servers are verified.** A TLS connection now requires the server's
+  certificate to chain to a trusted CA and to name the host connected to;
+  until now no certificate was checked. The CA certificates are found at
+  start: `SSL_CERT_FILE`, `SSL_CERT_DIR`, the platform's locations as
+  Python's `ssl` module reports them, then `certifi` if installed. A server
+  with a private or self-signed certificate needs `SIP_CA_FILE` pointing at
+  its CA, which the SIP stack then trusts in addition. With no CA certificates found, TLS is disabled and UDP and TCP are
+  unaffected. A rejected certificate fails registration with the reason in
+  the error. `sip_cafile`, `sip_capath` or `sip_verify_server` in
+  `extra_config_text` override all of this.
 
 - The bundled baresip and libre move from v4.10.0 to v4.13.0. No API of this
   package changes. What a call can show differently:

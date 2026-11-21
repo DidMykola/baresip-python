@@ -212,6 +212,29 @@ fixes, and a short threat-model note for operators: a registered user agent is a
 well as a client, and a publicly addressable one will receive unsolicited INVITEs and
 scanner traffic.
 
+### TLS
+
+Every TLS connection verifies the server: its certificate must chain to a trusted CA and
+name the host connected to. The CA certificates are found when the runtime starts, first
+hit wins:
+
+1. `SSL_CERT_FILE`, then `SSL_CERT_DIR`;
+2. the file, then the directory, Python's `ssl` module reports for the platform;
+3. the `certifi` package, when installed.
+
+For a server with a private or self-signed certificate, point `SIP_CA_FILE` at its CA
+certificate (a PEM file). It is trusted in addition to the certificates found above, and by
+the SIP stack alone: public servers keep verifying, and nothing else in the process comes
+to trust the private CA. A `SIP_CA_FILE` that does not name a file is an error at start.
+The runtime logs what it verifies against. When no CA certificates are found, TLS is
+disabled (UDP and TCP are unaffected) and a TLS account or target raises
+`NoCaCertificatesError`. A rejected certificate fails the registration with the reason
+(`self-signed certificate`, `hostname mismatch`, ...) in the error.
+
+There is no switch for verification among the `Config` fields. A caller that sets
+`sip_cafile`, `sip_capath` or `sip_verify_server` in `Config(extra_config_text=...)`
+takes TLS trust into their own hands, and nothing above is applied.
+
 ## API stability policy
 
 The public API is exactly what `baresip.__all__` exports and these docs describe; everything
