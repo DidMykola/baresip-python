@@ -600,6 +600,52 @@ static void jw_kv_u32(struct jw *w, const char *key, uint32_t val)
     jw_puts(w, num);
 }
 
+/* -- SIP INFO ---------------------------------------------------------------
+ *
+ * The stack hands every INFO that is not DTMF relay to a per-call
+ * handler, and the handler's answer decides the reply: true is 200 OK,
+ * false is 488. The reply cannot wait for Python, so every INFO that
+ * fits the event channel is accepted and reported.
+ */
+static bool sip_info_handler(struct call *call, const char *ctype, const uint8_t *body, size_t len,
+                             const struct sip_msg *msg, void *arg)
+{
+    static struct jw w; /* re thread only; too large for the stack */
+    static char b64[4 * ((BP_INFO_BODY_MAX + 2) / 3) + 1];
+    size_t b64_len = sizeof(b64) - 1;
+    uint32_t handle = bp_call_handle_find(call);
+
+    (void)msg;
+    (void)arg;
+
+    if (!handle || len > BP_INFO_BODY_MAX)
+        return false;
+    if (!len)
+        b64_len = 0;
+    else if (base64_encode(body, len, b64, &b64_len))
+        return false;
+    b64[b64_len] = '\0';
+
+    w.len = 0;
+    w.overflow = false;
+    w.truncated = false;
+
+    jw_putc(&w, '{');
+    jw_kv_u32(&w, "call", handle);
+    jw_kv_str(&w, "text", ctype ? ctype : "");
+    jw_key(&w, "body");
+    jw_putc(&w, '"');
+    jw_puts(&w, b64); /* the base64 alphabet needs no escaping */
+    jw_putc(&w, '"');
+    jw_putc(&w, '}');
+    if (w.overflow)
+        return false;
+    w.buf[w.len] = '\0';
+
+    bp_emit(BP_EV_BASE + BP_EV_CALL_INFO, handle, w.buf);
+    return true;
+}
+
 /* -- stack event trampoline -------------------------------------------------
  *
  * One handler receives every event the stack emits and forwards it as
@@ -644,6 +690,11 @@ static void emit_stack_event(int ev, struct ua *ua, struct call *call, const str
     uint32_t ua_handle = handle_create(ua, BP_OBJ_UA);
     uint32_t call_handle = handle_create(call, BP_OBJ_CALL);
     size_t i;
+
+    /* Every call the application can see passes through here before
+     * its dialog can carry an INFO; setting the handler again is free. */
+    if (call_handle)
+        call_set_sip_info_handler(call, sip_info_handler, NULL);
 
     w.len = 0;
     w.overflow = false;

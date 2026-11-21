@@ -139,6 +139,21 @@ custom headers. The stack sends it automatically, before the application ever se
 call — and it is a hop-by-hop response, so a header on it would die at the first proxy
 anyway. Headers on the final response (answer/reject) are planned for a later release.
 
+## SIP INFO
+
+A PBX or contact-center platform can send a SIP INFO inside a call to pass an application
+event: a recording signal, a queue or agent event. `call.on_info(callback)` delivers each
+one as an `InfoEvent` with the request's content type and its body, as raw bytes:
+
+```python
+call.on_info(lambda info: print(info.content_type, info.body))
+```
+
+Every INFO is answered `200 OK`, whether or not the application listens, so the sender never
+gets an error for an event the application ignores. DTMF sent as INFO is not reported
+here; it arrives through `call.on_dtmf` like any other digit. A body over 8 KiB is refused
+with `488`. Sending INFO is not available yet.
+
 ## Transfers and hold
 
 Hold/resume (`call.hold()`, with the far end's hold state in `call.remote_on_hold`), blind

@@ -8,10 +8,17 @@ SemVer with the 0.x caveat (see the API stability policy in the README).
 
 ### Added
 
+- `Call.on_info` / `Call.off_info` and `InfoEvent`: a SIP INFO request
+  received on a call is delivered with its content type and raw body. DTMF
+  sent as INFO keeps arriving through `on_dtmf`.
 - `NoCaCertificatesError`: raised for a TLS account or dial target when the
   runtime found no CA certificates to verify servers with.
 
 ### Changed
+
+- **A SIP INFO request is answered `200 OK`.** Until now an INFO with a body
+  other than DTMF relay was answered `488 Not Acceptable Here`. A body over
+  8 KiB is still refused with `488`.
 
 - **TLS servers are verified.** A TLS connection now requires the server's
   certificate to chain to a trusted CA and to name the host connected to;

@@ -15,6 +15,7 @@ new process.
 
 import asyncio
 import atexit
+import base64
 import contextlib
 import contextvars
 import errno as _errno
@@ -741,6 +742,7 @@ class Runtime:
             to=data.get("to"),
             headers=data.get("headers", {}),
             stats=data.get("stats", {}),
+            body=base64.b64decode(data["body"]) if data.get("body") else b"",
             truncated=data.get("truncated", False),
         )
         for listener in list(self._listeners):
