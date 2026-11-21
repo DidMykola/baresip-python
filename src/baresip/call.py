@@ -100,6 +100,24 @@ def _parse_refer_to(raw: str) -> TransferRequest:
 
 
 @dataclass(frozen=True)
+class InfoEvent:
+    """One SIP INFO request the far end sent, delivered to ``on_info`` callbacks.
+
+    A PBX or contact-center platform uses INFO to pass an application
+    event inside a call. What the body means is between the two sides;
+    it arrives exactly as sent.
+
+    Parameters:
+        content_type: The request's Content-Type, parameters included;
+            empty when it had none.
+        body: The request's body, empty when it had none.
+    """
+
+    content_type: str
+    body: bytes
+
+
+@dataclass(frozen=True)
 class DigitEvent:
     """One DTMF digit the far end sent, delivered to ``on_dtmf`` callbacks.
 
@@ -172,6 +190,7 @@ class Call:
         self._dtmf_listeners: list = []
         self._dtmf_pressed: tuple[str, float] | None = None
         self._rtcp_adapters: dict = {}
+        self._info_adapters: dict = {}
         self._final_stats: CallStats | None = None
         self.peer = peer
         self.call_id = call_id
@@ -917,6 +936,33 @@ class Call:
         """Stop delivering RTCP snapshots to ``callback``. Unknown callbacks
         are ignored."""
         adapter = self._rtcp_adapters.pop(callback, None)
+        if adapter is not None:
+            self.off(adapter)
+
+    def on_info(self, callback) -> None:
+        """Deliver the far end's SIP INFO requests to ``callback``.
+
+        Every INFO on the call is answered 200 OK, whether or not anything
+        listens here. DTMF sent as INFO is not reported here: it arrives
+        through :meth:`on_dtmf`. A body larger than 8 KiB is refused with
+        488 and not delivered.
+
+        Args:
+            callback: Called with an :class:`InfoEvent`. Same delivery
+                contract as :meth:`on`.
+        """
+
+        def adapter(event: StackEvent) -> None:
+            if event.event is Event.CALL_INFO:
+                callback(InfoEvent(content_type=event.text or "", body=event.body))
+
+        self._info_adapters[callback] = adapter
+        self.on(adapter)
+
+    def off_info(self, callback) -> None:
+        """Stop delivering INFO requests to ``callback``. Unknown callbacks
+        are ignored."""
+        adapter = self._info_adapters.pop(callback, None)
         if adapter is not None:
             self.off(adapter)
 

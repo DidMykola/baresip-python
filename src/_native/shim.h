@@ -177,6 +177,15 @@
  * "transmit:" or "receive:". */
 #define BP_EV_AUDIO_WARNING 900
 
+/* BP_EV_CALL_INFO: a SIP INFO request arrived on a call. Every one is
+ * answered 200 OK and reported, whether or not the application listens;
+ * DTMF relay (application/dtmf-relay) is the stack's own and arrives as
+ * DTMF events instead. A body larger than BP_INFO_BODY_MAX is refused
+ * (488) and not reported: the event channel could not carry it.
+ * Payload: {"call":N,"text":content type,"body":base64 of the body}. */
+#define BP_EV_CALL_INFO 901
+#define BP_INFO_BODY_MAX 8192
+
 /* The stack's event numbering as actually compiled, for the cross-check
  * against the Python side: the numbers are bare enum positions upstream
  * has historically inserted into, so a mismatch after a version bump must
