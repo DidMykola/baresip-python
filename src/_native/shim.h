@@ -191,6 +191,9 @@
  * has historically inserted into, so a mismatch after a version bump must
  * fail a test — not silently relabel every event. */
 int bp_bevent_max(void);
+/* The stack's number for "media secured", the first field of a
+ * CALL_MENC event's text ("<number>,<stream>,<suite>"). */
+int bp_menc_event_secure(void);
 const char *bp_bevent_str(int ev);
 
 /* Severity of a native log line. The stack underneath has two logging

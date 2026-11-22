@@ -117,6 +117,16 @@ SIP_LISTEN=127.0.0.1:5070 uv run python examples/08_video_call.py
 SIP_LISTEN=127.0.0.1:5072 SIP_DIAL=sip:alice@127.0.0.1:5070 uv run python examples/08_video_call.py
 ```
 
+**[10 — encrypted calls](examples/10_encrypted_call.py).** SRTP with one account setting,
+and a call that reports what it got. Answer calls and follow each caller's offer, or set
+`SIP_ENCRYPTION=srtp` to accept and place only encrypted calls; it registers over TLS, so
+the SRTP keys stay private:
+
+```
+SIP_CA_FILE=bench/certs/cert.pem uv run python examples/10_encrypted_call.py
+docker exec baresip-bench-freeswitch fs_cli -x "originate {rtp_secure_media=mandatory}user/1001 &echo()"
+```
+
 ## Audio and device selection
 
 Audio drivers are chosen when the runtime starts — `Config(audio_source=...,
@@ -249,6 +259,26 @@ disabled (UDP and TCP are unaffected) and a TLS account or target raises
 There is no switch for verification among the `Config` fields. A caller that sets
 `sip_cafile`, `sip_capath` or `sip_verify_server` in `Config(extra_config_text=...)`
 takes TLS trust into their own hands, and nothing above is applied.
+
+### Media encryption
+
+Call audio and video can be encrypted with SRTP, the form carriers, hosted PBXs and
+contact-center platforms require. One account field decides it:
+
+| `Account(media_encryption=...)` | Calls placed | Calls received |
+|---|---|---|
+| `"none"` (default) | unencrypted | follow the caller: unencrypted, or SRTP when the caller offers it |
+| `"srtp"` | SRTP, required | SRTP only; an unencrypted call is refused with `488` |
+
+So a default account answers a caller that requires SRTP with no configuration, and
+`"srtp"` guarantees that nothing is ever sent in the clear. `call.media_encrypted` reports
+what a call ended up with.
+
+The SRTP keys are exchanged in the call setup (SDES), so they are only as private as the
+signalling: use `transport="tls"` with `"srtp"`. The runtime warns when it is not. DTLS-SRTP
+and ZRTP have no typed setting; a `mediaenc=` entry in `extra_params` selects the stack's
+mode directly and takes the place of this field.
+Example 10 is the runnable version.
 
 ## API stability policy
 

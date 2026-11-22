@@ -98,6 +98,7 @@ ffi.cdef("""
 #define BP_INFO_BODY_MAX ...
 
 int bp_bevent_max(void);
+int bp_menc_event_secure(void);
 const char *bp_bevent_str(int ev);
 
 #define BP_LOG_DEBUG ...
