@@ -501,6 +501,9 @@ class Call:
         endpoint is busy, 480 that it is unavailable for now, 503 that
         the call should be tried elsewhere, 603 that it is declined.
 
+        A proxy on the way may change what arrives: one that follows
+        RFC 3261 does not pass a 503 on, and the caller sees a 500.
+
         On a call that is no longer incoming and unanswered this ends
         the call instead, as :meth:`hangup` does; the status then goes
         unused.
