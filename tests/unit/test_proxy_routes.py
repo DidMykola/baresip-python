@@ -16,6 +16,7 @@ watches the other end to see that the request arrived.
 
 import asyncio
 import itertools
+import logging
 import shutil
 import subprocess
 
@@ -58,6 +59,9 @@ FORMS = {
 # With no Record-Route only the caller's requests pass through the proxy:
 # the answering side sends straight to the caller's own Contact.
 ROUTED = [form for form in FORMS if FORMS[form][1]]
+# The answering side's next hop is a port nothing listens on; the caller's
+# is the proxy, so the call itself still completes.
+DEAD_END_FOR_THE_ANSWERER = ("udp", ("<sips:127.0.0.1:1;lr>", "<sip:127.0.0.1:{udp};lr>"), None)
 
 
 @pytest.fixture(scope="session")
@@ -88,8 +92,8 @@ async def routed(certificate, monkeypatch):
     await runtime.start(Config(net_interface="127.0.0.1", extra_config_text=f"sip_listen {own}\n"))
     proxies: list[SipProxy] = []
 
-    async def connect(form: str, target: str | None = None, caller_transport: str | None = None):
-        transport, record_route, contact = FORMS[form]
+    async def connect(form, target: str | None = None, caller_transport: str | None = None):
+        transport, record_route, contact = FORMS[form] if isinstance(form, str) else form
         transport = caller_transport or transport
         proxy = SipProxy(("127.0.0.1", port), cert, key, record_route, contact)
         await proxy.start()
@@ -214,3 +218,21 @@ async def test_a_sips_target_is_dialled_over_tls_from_a_udp_account(routed):
     await placed.wait_established(timeout=5)
     await received.wait_established(timeout=5)
     assert proxy.requests[0] == ("INVITE", "TLS")
+
+
+async def test_a_hangup_that_cannot_be_delivered_is_logged(routed, caplog):
+    placed, received, _proxy = await routed(DEAD_END_FOR_THE_ANSWERER)
+    await placed.wait_established(timeout=5)
+    await received.wait_established(timeout=5)
+    caplog.set_level(logging.WARNING, logger="baresip.native")
+
+    await received.hangup()
+
+    def warned() -> bool:
+        return any("BYE was not delivered" in r.getMessage() for r in caplog.records)
+
+    for _ in range(100):
+        if warned():
+            break
+        await asyncio.sleep(0.05)
+    assert warned()
