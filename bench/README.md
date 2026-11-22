@@ -83,6 +83,11 @@ FreeSWITCH's network namespace, which is why its ports are published on that ser
 certificate is the bench's own (`bench/certs/cert.pem`). `make bench-proxy-logs` follows its
 log. Configuration: `conf/kamailio.cfg`.
 
+Because the proxy lives in FreeSWITCH's network namespace, restarting the FreeSWITCH container
+on its own leaves the proxy running without a network, and Docker still reports it healthy.
+Restart it too (`docker restart baresip-bench-kamailio`); the proxy tests do so themselves when
+they find it unreachable.
+
 ## Driving the switch from tests
 
 `mod_event_socket` listens on the *container's* loopback only (never published). Tests reach it

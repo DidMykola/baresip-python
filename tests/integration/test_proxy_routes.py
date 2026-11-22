@@ -18,6 +18,9 @@ watches the other end to see that it arrived. Run with:
 import asyncio
 import contextlib
 import pathlib
+import socket
+import subprocess
+import time
 
 import pytest
 
@@ -39,6 +42,43 @@ FORMS = {
     "sips with a hostname": (15073, "tls"),
     "sips for the caller, sip for the answerer": (15074, "tls"),
 }
+
+
+PROXY_CONTAINER = "baresip-bench-kamailio"
+OPTIONS = (
+    "OPTIONS sip:127.0.0.1:15070 SIP/2.0\r\n"
+    "Via: SIP/2.0/TCP 127.0.0.1:9;branch=z9hG4bK-bench-probe\r\n"
+    "From: <sip:probe@127.0.0.1>;tag=probe\r\nTo: <sip:127.0.0.1:15070>\r\n"
+    "Call-ID: bench-probe\r\nCSeq: 1 OPTIONS\r\nMax-Forwards: 5\r\nContent-Length: 0\r\n\r\n"
+)
+
+
+def proxy_answers() -> bool:
+    """True when the proxy answers a SIP request sent from the host."""
+    try:
+        with socket.create_connection(("127.0.0.1", 15070), timeout=2) as connection:
+            connection.settimeout(2)
+            connection.sendall(OPTIONS.encode())
+            return connection.recv(64).startswith(b"SIP/2.0")
+    except OSError:
+        return False
+
+
+@pytest.fixture(scope="module", autouse=True)
+def proxy():
+    """The bench proxy, restarted if it lost its network.
+
+    It shares FreeSWITCH's network namespace, so a test that restarts
+    FreeSWITCH leaves it running in a namespace that no longer exists:
+    still "healthy" to Docker, reachable by nobody.
+    """
+    if proxy_answers():
+        return
+    subprocess.run(["docker", "restart", PROXY_CONTAINER], check=True, capture_output=True)
+    deadline = time.monotonic() + 30
+    while not proxy_answers():
+        assert time.monotonic() < deadline, "the bench proxy did not come back"
+        time.sleep(0.5)
 
 
 @pytest.fixture
