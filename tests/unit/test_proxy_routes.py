@@ -25,7 +25,7 @@ native = pytest.importorskip("baresip._native")
 
 from sip_proxy import SipProxy
 
-from baresip import Account, CallState, Config, Event, Runtime, UserAgent
+from baresip import Account, BaresipError, CallState, Config, Event, Runtime, UserAgent
 
 # A closed runtime's SIP socket lingers in-process; sequential tests
 # each take a fresh port.
@@ -55,9 +55,9 @@ FORMS = {
     ),
     "sips contact, no route": ("tls", (), "sips:{user}@127.0.0.1:{tls}"),
 }
-# The stack refuses a request whose next hop is a sips: URI.
-SIPS = pytest.mark.xfail(strict=True, reason="libre does not send to a sips: next hop")
-CASES = [pytest.param(form, marks=SIPS) if "sips" in form else form for form in FORMS]
+# With no Record-Route only the caller's requests pass through the proxy:
+# the answering side sends straight to the caller's own Contact.
+ROUTED = [form for form in FORMS if FORMS[form][1]]
 
 
 @pytest.fixture(scope="session")
@@ -117,6 +117,18 @@ async def routed(certificate, monkeypatch):
         await proxy.close()
 
 
+async def unhurried(change) -> None:
+    """Hold or resume, waiting out a renegotiation that is still in flight."""
+    for _ in range(40):
+        try:
+            return await change()
+        except BaresipError as error:
+            if "in flight" not in str(error):
+                raise
+            await asyncio.sleep(0.05)
+    await change()
+
+
 def closed(call) -> asyncio.Future:
     """A future resolved when the call is closed."""
     future = asyncio.get_running_loop().create_future()
@@ -132,7 +144,7 @@ def closed(call) -> asyncio.Future:
     return future
 
 
-@pytest.mark.parametrize("form", CASES)
+@pytest.mark.parametrize("form", FORMS)
 async def test_the_call_completes_and_the_callers_hangup_arrives(routed, form):
     placed, received, _proxy = await routed(form)
 
@@ -145,7 +157,7 @@ async def test_the_call_completes_and_the_callers_hangup_arrives(routed, form):
     await asyncio.wait_for(gone, 2)
 
 
-@pytest.mark.parametrize("form", CASES)
+@pytest.mark.parametrize("form", ROUTED)
 async def test_the_answering_sides_hangup_arrives(routed, form):
     placed, received, _proxy = await routed(form)
     await placed.wait_established(timeout=5)
@@ -156,21 +168,23 @@ async def test_the_answering_sides_hangup_arrives(routed, form):
     await asyncio.wait_for(gone, 2)
 
 
-@pytest.mark.parametrize("form", CASES)
+@pytest.mark.parametrize("form", ROUTED)
 async def test_a_hold_from_the_answering_side_arrives(routed, form):
     placed, received, _proxy = await routed(form)
     await placed.wait_established(timeout=5)
     await received.wait_established(timeout=5)
-    await asyncio.sleep(0.5)  # let the stack's own follow-up re-INVITE settle
+    # Both sides renegotiate once on their own just after the call is
+    # up; a hold sent into that would collide with it.
+    await asyncio.sleep(0.6)
 
-    await received.hold()
+    await unhurried(received.hold)
     for _ in range(40):
         if placed.remote_on_hold:
             break
         await asyncio.sleep(0.05)
     assert placed.remote_on_hold
 
-    await received.resume()
+    await unhurried(received.resume)
     for _ in range(40):
         if not placed.remote_on_hold:
             break
@@ -178,7 +192,6 @@ async def test_a_hold_from_the_answering_side_arrives(routed, form):
     assert not placed.remote_on_hold
 
 
-@SIPS
 async def test_requests_on_a_sips_route_travel_over_tls(routed):
     placed, received, proxy = await routed("sips, caller on udp")
     await placed.wait_established(timeout=5)
@@ -193,7 +206,6 @@ async def test_requests_on_a_sips_route_travel_over_tls(routed):
     assert arrived_on["BYE"] == "TLS"
 
 
-@SIPS
 async def test_a_sips_target_is_dialled_over_tls_from_a_udp_account(routed):
     placed, received, proxy = await routed(
         "sips", target="sips:bob@127.0.0.1:{tls}", caller_transport="udp"
