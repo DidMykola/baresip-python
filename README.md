@@ -134,10 +134,23 @@ Outbound INVITEs take custom headers directly: `ua.dial(uri, headers={...})` (ex
 On the receiving side, `Config(expose_headers=[...])` allowlists header names whose values
 then ride along on call events.
 
-One deliberate absence: the `100 Trying` that answers an incoming INVITE cannot carry
-custom headers. The stack sends it automatically, before the application ever sees the
+The messages that refuse or end a call take them too, and a refusal takes its status:
+
+```python
+await call.reject(status=503, headers={"Retry-After": "30"})        # try another instance
+await call.reject(status=480, reason="Agent on a break")
+await call.hangup(headers={"Reason": 'Q.850;cause=16;text="resolved"', "X-Queue": "sales"})
+```
+
+A switch or contact-center platform routes on that status: 486, the default, says this
+endpoint is busy; 503 that the call should go elsewhere. `hangup(headers=...)` puts the
+headers on the BYE of an answered call, or on the rejection of an incoming one not yet
+answered; an outgoing call that nobody answered is cancelled, and a cancellation carries none.
+
+Two deliberate absences. The `100 Trying` that answers an incoming INVITE cannot carry
+custom headers: the stack sends it automatically, before the application ever sees the
 call — and it is a hop-by-hop response, so a header on it would die at the first proxy
-anyway. Headers on the final response (answer/reject) are planned for a later release.
+anyway. Nor can the answer (`200 OK`): the stack has no way to add them yet.
 
 ## SIP INFO
 

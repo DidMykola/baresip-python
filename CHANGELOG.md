@@ -8,6 +8,11 @@ SemVer with the 0.x caveat (see the API stability policy in the README).
 
 ### Added
 
+- `Call.reject(status=486, reason=None, headers=None)`: a refusal carries the
+  status the application chooses (300-699), its standard reason phrase or
+  one supplied, and custom headers. `Call.hangup(headers=None)`: custom
+  headers on the BYE, or on the rejection of a call not yet answered. With no
+  arguments both behave as before.
 - `Call.on_info` / `Call.off_info` and `InfoEvent`: a SIP INFO request
   received on a call is delivered with its content type and raw body. DTMF
   sent as INFO keeps arriving through `on_dtmf`.
