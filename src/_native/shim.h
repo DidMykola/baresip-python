@@ -46,8 +46,20 @@
  * or BYE is issued; the CALL_CLOSED stack event follows immediately and
  * is what invalidates the handle. */
 #define BP_CMD_CALL_ANSWER 9
-#define BP_CMD_CALL_REJECT 10 /* answers 486 Busy Here */
+/* End a call. Args: first line "HANDLE [STATUS]", second line a reason
+ * phrase, every further line one header ("Name: value") to send with
+ * what ends the call; all but the handle are optional.
+ *
+ * REJECT answers an incoming, unanswered call with STATUS and the reason
+ * phrase (486 Busy Here when neither is given). HANGUP ends the call
+ * whatever its state: BYE once it is answered, a rejection before, a
+ * CANCEL for an outgoing call nobody answered yet. The headers travel on
+ * the BYE or the rejection; a CANCEL carries none. A header block longer
+ * than BP_CLOSE_HEADERS_MAX completes with {"error":"headers_too_long"}
+ * and leaves the call as it was. */
+#define BP_CMD_CALL_REJECT 10
 #define BP_CMD_CALL_HANGUP 11
+#define BP_CLOSE_HEADERS_MAX 2048
 
 /* Dial out. Args: first line "HANDLE V URI", where V shapes the video
  * offer: 0 = no video stream at all, 1 = sendrecv (VP8, frames through

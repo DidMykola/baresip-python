@@ -21,7 +21,7 @@ import re
 from typing import ClassVar
 
 from baresip._native import lib
-from baresip.call import Call, CallState, _parse_refer_to
+from baresip.call import Call, CallState, _parse_refer_to, header_lines
 from baresip.config import Account
 from baresip.errors import (
     BaresipError,
@@ -284,13 +284,7 @@ class UserAgent:
             )
         if self._runtime.draining:
             raise DrainingError("runtime is draining; new calls are refused")
-        args = f"{self._handle} {self._VIDEO_DIRS[video]} {uri}"
-        for name, value in (headers or {}).items():
-            if not name or any(c in name for c in "\r\n: "):
-                raise ValueError(f"invalid header name {name!r}")
-            if any(c in str(value) for c in "\r\n"):
-                raise ValueError(f"header {name}: value must be single-line")
-            args += f"\n{name}: {value}"
+        args = f"{self._handle} {self._VIDEO_DIRS[video]} {uri}{header_lines(headers)}"
         ev, payload = await self._runtime.cmd(lib.BP_CMD_UA_CONNECT, args=args)
         if ev == lib.BP_EV_STALE_HANDLE:
             raise StaleHandleError("user agent no longer exists")
