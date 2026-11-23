@@ -39,6 +39,10 @@ _PORTS = itertools.count(5385)
 # takes the first as its next hop, the caller the last. A proxy that
 # bridges two transports inserts one entry per side; one that insists on
 # TLS inserts a single ``sips:`` entry for both.
+#
+# Every entry names the proxy by address. A route by host name depends on
+# how the machine resolves it, which the stack does with its own resolver
+# and not the system's; that form is covered against the bench's proxy.
 FORMS = {
     "sip over udp": ("udp", ("<sip:127.0.0.1:{udp};lr>",), None),
     "sip, one entry per side": (
@@ -47,7 +51,6 @@ FORMS = {
         None,
     ),
     "sips": ("tls", ("<sips:127.0.0.1:{tls};lr>",), None),
-    "sips with a hostname": ("tls", ("<sips:localhost:{tls};lr>",), None),
     "sips, caller on udp": ("udp", ("<sips:127.0.0.1:{tls};lr>",), None),
     "sips for the caller, sip for the answerer": (
         "tls",
