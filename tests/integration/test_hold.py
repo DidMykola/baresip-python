@@ -40,9 +40,9 @@ async def echo_call(tmp_path):
             max_concurrent_calls=None,
             audio_source="ausine,440",
             audio_player=f"aufile,{tmp_path}/rx.wav",
+            sip_trace=True,
         )
     )
-    await runtime.set_sip_trace(True)
     ua = await UserAgent.create(runtime, Account(user="1003", password="bench1234", domain=DOMAIN))
     await ua.register()
     call = await ua.dial(f"sip:9196@{DOMAIN}")
