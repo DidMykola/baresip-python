@@ -8,6 +8,9 @@ SemVer with the 0.x caveat (see the API stability policy in the README).
 
 ### Added
 
+- `Account(media_encryption="none" | "srtp")`: `"srtp"` encrypts every call
+  with SRTP (SDES keys) and refuses a received call that offers none.
+  `Call.media_encrypted` reports whether a call's audio is encrypted.
 - `Call.on_info` / `Call.off_info` and `InfoEvent`: a SIP INFO request
   received on a call is delivered with its content type and raw body. DTMF
   sent as INFO keeps arriving through `on_dtmf`.
@@ -15,6 +18,11 @@ SemVer with the 0.x caveat (see the API stability policy in the README).
   runtime found no CA certificates to verify servers with.
 
 ### Changed
+
+- **A received call that offers SRTP is accepted and encrypted** on an account
+  with no encryption configured. Until now it was answered `488 Not
+  Acceptable Here` before the application saw it. When the caller offers both
+  an SRTP and an unencrypted audio section, the SRTP one is taken.
 
 - **A SIP INFO request is answered `200 OK`.** Until now an INFO with a body
   other than DTMF relay was answered `488 Not Acceptable Here`. A body over

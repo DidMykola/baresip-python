@@ -842,6 +842,93 @@ static void emit_stack_event(int ev, struct ua *ua, struct call *call, const str
 }
 
 /* RE THREAD. */
+/* -- media encryption on incoming calls --------------------------------------
+ *
+ * A call takes its media encryption from its account when it is created,
+ * and one account mode answers one form of offer. So an incoming call is
+ * accepted here: the account's mode is set from what the caller offers,
+ * the call is created, and the mode is put back, all on the re thread,
+ * where nothing else can observe the account in between.
+ *
+ * An account with no encryption follows the caller. An account that
+ * requires SRTP (srtp-mand) takes whichever SRTP form is offered and
+ * leaves a plain offer to the stack, which refuses it with 488. Any other
+ * mode was chosen in raw account parameters and is left alone.
+ */
+
+/* The stack's account modes for SRTP with its keys in the SDP (SDES),
+ * and the SDP profile each one answers. */
+#define MENC_SRTP "srtp-mand"           /* RTP/SAVP */
+#define MENC_SRTP_FEEDBACK "srtp-mandf" /* RTP/SAVPF, the RTCP-feedback profile */
+#define MENC_SRTP_OPTIONAL "srtp"       /* keys on an unencrypted line */
+#define SDP_PROTO_SAVP "RTP/SAVP"
+#define SDP_PROTO_SAVPF "RTP/SAVPF"
+
+/* The account mode that answers this offer with SRTP, or NULL when the
+ * offer has none. Of several audio sections an SRTP one is preferred.
+ *
+ * FIXME: a DTLS-SRTP offer (UDP/TLS/RTP/SAVP[F] with a fingerprint) is
+ * not recognised here, so it is answered like an unencrypted one and
+ * refused. The dtls_srtp module is loaded; mapping the offer to it
+ * belongs with a "dtls" value for Account.media_encryption. */
+static const char *offer_mediaenc(const struct sip_msg *msg)
+{
+    const char *body = msg->mb ? (const char *)mbuf_buf(msg->mb) : NULL;
+    size_t n = msg->mb ? mbuf_get_left(msg->mb) : 0;
+    bool savp = false, savpf = false, keys = false;
+    size_t i = 0;
+
+    while (body && i < n) {
+        const char *eol = memchr(&body[i], '\n', n - i);
+        size_t len = eol ? (size_t)(eol - &body[i]) : n - i;
+        struct pl port, proto;
+
+        if (0 == re_regex(&body[i], len, "m=audio [0-9]+ [^ \r]+", &port, &proto)) {
+            if (pl_u32(&port) == 0)
+                ; /* a section the caller itself disabled */
+            else if (0 == pl_strcmp(&proto, SDP_PROTO_SAVP))
+                savp = true;
+            else if (0 == pl_strcmp(&proto, SDP_PROTO_SAVPF))
+                savpf = true;
+        } else if (len >= 9 && 0 == memcmp(&body[i], "a=crypto:", 9)) {
+            keys = true;
+        }
+        i += len + 1;
+    }
+
+    if (savp)
+        return MENC_SRTP;
+    if (savpf)
+        return MENC_SRTP_FEEDBACK;
+    /* Keys on a plain line: the caller would like SRTP but accepts none. */
+    return keys ? MENC_SRTP_OPTIONAL : NULL;
+}
+
+static void accept_incoming(const struct sip_msg *msg)
+{
+    struct ua *ua = uag_find_msg(msg);
+    struct account *acc = ua_account(ua);
+    const char *mode = account_mediaenc(acc);
+    const char *pick = offer_mediaenc(msg);
+    char rest[32];
+
+    if (!ua) {
+        (void)sip_treply(NULL, uag_sip(), msg, 404, "Not Found");
+        return;
+    }
+    if (!pick || (mode && 0 != str_cmp(mode, MENC_SRTP))) {
+        (void)ua_accept(ua, msg);
+        return;
+    }
+
+    rest[0] = '\0';
+    if (mode)
+        str_ncpy(rest, mode, sizeof(rest));
+    (void)account_set_mediaenc(acc, pick);
+    (void)ua_accept(ua, msg);
+    (void)account_set_mediaenc(acc, rest[0] ? rest : NULL);
+}
+
 static void bp_bevent_h(enum bevent_ev ev, struct bevent *event, void *arg)
 {
     struct ua *ua = bevent_get_ua(event);
@@ -855,6 +942,15 @@ static void bp_bevent_h(enum bevent_ev ev, struct bevent *event, void *arg)
      * included. A credential must never cross into the payload. */
     if (ev == BEVENT_CREATE)
         text = NULL;
+
+    /* An incoming INVITE, before any call exists for it: this shim, not
+     * the core, accepts it (see accept_incoming). Accepting creates the
+     * call, which is then reported through CALL_INCOMING like any other,
+     * so this event itself is not forwarded. */
+    if (ev == BEVENT_SIPSESS_CONN && msg) {
+        accept_incoming(msg);
+        return;
+    }
 
     /* Draining: refuse new inbound work right here on the re thread —
      * a busy Python loop cannot leak a ring through. The call is
@@ -887,6 +983,11 @@ static void bp_bevent_h(enum bevent_ev ev, struct bevent *event, void *arg)
 int bp_bevent_max(void)
 {
     return BEVENT_MAX;
+}
+
+int bp_menc_event_secure(void)
+{
+    return MENC_EVENT_SECURE;
 }
 
 const char *bp_bevent_str(int ev)
@@ -1717,20 +1818,13 @@ int bp_loop_init(const char *conf_dir, const char *config_text, int log_level)
     if (err)
         goto out;
 
-    /* The core's compiled default is call.accept=false, in which mode an
-     * incoming INVITE gets NO reply on the wire (not even 100 Trying) and
-     * no call object — only a SIPSESS_CONN event, with the application
-     * expected to screen the message and call ua_accept() by hand. This
-     * binding's inbound API is built entirely on the core-accepted path
-     * (CALL_INCOMING carrying a call handle), so accept mode is forced
-     * here, after the user config parse, where no config text can
-     * override it — with call.accept=false incoming calls would not be
-     * screened, they would silently vanish.
-     *
-     * FIXME: if call screening is ever wanted, expose it additively — a
-     * Python hook on the SIPSESS_CONN event plus a per-INVITE accept
-     * command — instead of surfacing this flag. */
-    conf_config()->call.accept = true;
+    /* Incoming INVITEs are accepted by this shim, not by the core: with
+     * call.accept off the core hands each one over as a SIPSESS_CONN
+     * event, and accept_incoming() picks the media encryption from the
+     * offer before the call object exists. Forced here, after the user
+     * config parse, so that no config text can turn it back on and
+     * bypass that choice. */
+    conf_config()->call.accept = false;
     g_drain = false;
 
     stage = BP_STAGE_BARESIP;

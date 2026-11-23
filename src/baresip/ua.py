@@ -129,6 +129,12 @@ class UserAgent:
                 "the account uses TLS, but no CA certificates were found to verify "
                 "the server with; set SIP_CA_FILE to a CA bundle, or install certifi"
             )
+        if isinstance(account, Account) and account.requires_srtp and account.transport != "tls":
+            logger.warning(
+                "media_encryption='srtp' with transport=%r: the SRTP keys travel in the "
+                "call setup, unencrypted; use transport='tls' to keep them private",
+                account.transport,
+            )
         _, payload = await runtime.cmd(lib.BP_CMD_UA_ALLOC, args=aor)
         data = json.loads(payload)
         if "error" in data:

@@ -45,6 +45,9 @@ from baresip.video import CallVideo
 logger = logging.getLogger("baresip.call")
 
 _ESTABLISH_TIMEOUT = 30.0
+# A CALL_MENC event's text is "<menc event>,<stream>,<suite>"; this one
+# says the audio stream is now encrypted.
+_AUDIO_SECURED = re.compile(rf"{lib.bp_menc_event_secure()},audio\b")
 _TRANSFER_TIMEOUT = 60.0
 _DTMF_DIGITS = "0123456789ABCD*#"
 _DTMF_TONE_MS = 100
@@ -177,6 +180,7 @@ class Call:
         self._state = state
         self._on_hold = False
         self._remote_on_hold = False
+        self._media_encrypted = False
         self._transfer_pending = False
         self._transfer_request: TransferRequest | None = None
         self._transfer_req_listeners: list = []
@@ -228,6 +232,16 @@ class Call:
         """True while we hold the call (the last :meth:`hold` /
         :meth:`resume` that reached the wire)."""
         return self._on_hold
+
+    @property
+    def media_encrypted(self) -> bool:
+        """True once the call's audio is encrypted with SRTP.
+
+        Set when the stack reports the audio stream secured, which
+        happens as the call is established; False before that and on an
+        unencrypted call.
+        """
+        return self._media_encrypted
 
     @property
     def remote_on_hold(self) -> bool:
@@ -300,6 +314,8 @@ class Call:
             self.peer = event.peer
         if event.event is Event.CALL_ESTABLISHED:
             self._state = CallState.ESTABLISHED
+        elif event.event is Event.CALL_MENC and _AUDIO_SECURED.match(event.text or ""):
+            self._media_encrypted = True
         elif event.event is Event.CALL_HOLD:
             self._remote_on_hold = True
         elif event.event is Event.CALL_RESUME:
