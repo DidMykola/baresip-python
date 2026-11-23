@@ -1531,20 +1531,71 @@ static void cmd_handler(int id, void *data, void *arg)
 
     case BP_CMD_CALL_REJECT:
     case BP_CMD_CALL_HANGUP: {
-        uint32_t h = msg->json ? (uint32_t)strtoul(msg->json, NULL, 10) : 0;
+        static char hdrs[BP_CLOSE_HEADERS_MAX]; /* re thread only */
+        char *end = NULL;
+        uint32_t h = msg->json ? (uint32_t)strtoul(msg->json, &end, 10) : 0;
+        uint16_t scode = end ? (uint16_t)strtoul(end, &end, 10) : 0;
         struct call *call = handle_lookup(h, BP_OBJ_CALL);
+        const char *reason = NULL;
+        char *line = end ? strchr(end, '\n') : NULL;
+        size_t len = 0;
+        bool too_long = false;
 
         if (!call) {
             bp_emit(BP_EV_STALE_HANDLE, msg->handle, NULL);
             break;
         }
+
+        /* Second line: the reason phrase. Every further line: a header. */
+        if (line) {
+            char *next = strchr(++line, '\n');
+
+            if (next)
+                *next++ = '\0';
+            if (*line)
+                reason = line;
+            line = next;
+        }
+        hdrs[0] = '\0';
+        while (line && *line) {
+            char *next = strchr(line, '\n');
+            size_t n = next ? (size_t)(next - line) : strlen(line);
+
+            if (len + n + 3 > sizeof(hdrs)) {
+                too_long = true;
+                break;
+            }
+            memcpy(&hdrs[len], line, n);
+            memcpy(&hdrs[len + n], "\r\n", 3);
+            len += n + 2;
+            line = next ? next + 1 : NULL;
+        }
+        if (too_long) {
+            bp_emit(BP_EV_DONE, msg->handle, "{\"error\":\"headers_too_long\"}");
+            break;
+        }
+        if (id == BP_CMD_CALL_REJECT && !scode) {
+            scode = 486;
+            reason = "Busy Here";
+        }
+
         /* ua_hangupf — not bare call_hangup — is the whole-life-cycle
          * hangup: it sends the response/BYE, emits CALL_CLOSED (which
-         * clears the handle slot), and releases the UA's reference. */
-        if (id == BP_CMD_CALL_REJECT)
-            ua_hangup(call_get_ua(call), call, 486, "Busy Here");
-        else
-            ua_hangup(call_get_ua(call), call, 0, NULL);
+         * clears the handle slot), and releases the UA's reference.
+         *
+         * The headers reach the wire by two routes, since which message
+         * ends the call depends on its state: the session's close
+         * headers ride the BYE, and the format passed to the hangup
+         * rides a rejection, which also wants its own end of headers.
+         * Both take a printf format, so the caller's text is only ever
+         * an argument to "%s". */
+        if (hdrs[0]) {
+            (void)call_set_close_headers(call, "%s", hdrs);
+            ua_hangupf(call_get_ua(call), call, scode, reason, "%sContent-Length: 0\r\n\r\n",
+                       hdrs);
+        } else {
+            ua_hangup(call_get_ua(call), call, scode, reason);
+        }
         bp_emit(BP_EV_DONE, msg->handle, NULL);
         break;
     }
