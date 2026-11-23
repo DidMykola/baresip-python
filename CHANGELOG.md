@@ -50,6 +50,19 @@ SemVer with the 0.x caveat (see the API stability policy in the README).
   - The stack no longer reads `audio_buffer_mode` or `audio_silence`; a
     line setting either in `extra_config_text` has no effect.
 
+### Fixed
+
+- Calls through a proxy or to a peer that uses `sips:` addresses now work.
+  A request whose next hop was a `sips:` URI, from a Record-Route (Flexisip,
+  sip.linphone.org) or from the peer's Contact (OpenAI's SIP endpoint), was
+  never sent: a call placed that way did not complete, and a hang-up, hold or
+  transfer did not reach the far end. Such a request now goes over TLS, and
+  `dial("sips:...")` works. The fix is a patch carried on the bundled libre
+  (docs/UPGRADING.md, "Carried patches").
+- A hang-up that cannot be sent, or is sent and not delivered, is logged as
+  a warning on `baresip.native`. It used to fail without a trace, leaving the
+  far end in a call this side had left.
+
 ## [0.6.1] - 2026-11-20
 
 ### Fixed
